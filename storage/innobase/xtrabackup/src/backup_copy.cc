@@ -68,6 +68,11 @@ std::set<std::string> rsync_list;
 /* Whether LOCK BINLOG FOR BACKUP has been issued during backup */
 bool binlog_locked;
 
+bool backup_tokudb_datafile= false;
+bool backup_tokudb_logfile= false;
+bool backup_tokudb_logfile2= false;
+bool backup_tokudb= false;
+
 /************************************************************************
 Struct represents file or directory. */
 struct datadir_node_t {
@@ -748,9 +753,29 @@ filename_matches(const char *filename, const char **ext_list)
 		}
 	}
 
+	if (backup_tokudb_logfile && strstr(filename, ".tokulog")) {
+		return true;
+	}
+
 	return(false);
 }
 
+
+	const char *ext_list[] = {"frm", "isl", "MYD", "MYI", "MAD", "MAI",
+		"MRG", "TRG", "TRN", "ARM", "ARZ", "CSM", "CSV", "opt", "par",
+		NULL};
+
+	const char *tokudb_data_ext_list[] = {
+		"tokudb", "__tokudb_lock_dont_delete_me_temp", "__tokudb_lock_dont_delete_me_data",
+		NULL};
+
+	const char *tokudb_log_ext_list[] = {
+		"__tokudb_lock_dont_delete_me_logs", "__tokudb_lock_dont_delete_me_recovery",
+		NULL};
+
+	const char *tokudb_log_ext_list2[] = {
+		"tokudb.rollback", "__tokudb_lock_dont_delete_me_environment", "tokudb.environment", "tokudb.directory",
+		NULL};
 
 /************************************************************************
 Copy data file for backup. Also check if it is allowed to copy by
@@ -761,10 +786,14 @@ static
 bool
 datafile_copy_backup(const char *filepath, uint thread_n)
 {
-	const char *ext_list[] = {"frm", "isl", "MYD", "MYI", "MAD", "MAI",
-		"MRG", "TRG", "TRN", "ARM", "ARZ", "CSM", "CSV", "opt", "par",
-		NULL};
-
+	const char **ext = ext_list;
+	if (backup_tokudb_datafile) {
+		ext = tokudb_data_ext_list;
+	} else if (backup_tokudb_logfile) {
+		ext = tokudb_log_ext_list;
+	} else if (backup_tokudb_logfile2) {
+		ext = tokudb_log_ext_list2;
+	}
 	/* Get the name and the path for the tablespace. node->name always
 	contains the path (which may be absolute for remote tablespaces in
 	5.6+). space->name contains the tablespace name in the form
@@ -779,7 +808,7 @@ datafile_copy_backup(const char *filepath, uint thread_n)
 		return(true);
 	}
 
-	if (filename_matches(filepath, ext_list)) {
+	if (filename_matches(filepath, ext)) {
 		return copy_file(ds_data, filepath, filepath, thread_n);
 	}
 
@@ -794,10 +823,14 @@ static
 bool
 datafile_rsync_backup(const char *filepath, bool save_to_list, FILE *f)
 {
-	const char *ext_list[] = {"frm", "isl", "MYD", "MYI", "MAD", "MAI",
-		"MRG", "TRG", "TRN", "ARM", "ARZ", "CSM", "CSV", "opt", "par",
-		NULL};
-
+	const char **ext = ext_list;
+	if (backup_tokudb_datafile) {
+		ext = tokudb_data_ext_list;
+	} else if (backup_tokudb_logfile) {
+		ext = tokudb_log_ext_list;
+	} else if (backup_tokudb_logfile2) {
+		ext = tokudb_log_ext_list2;
+	}
 	/* Get the name and the path for the tablespace. node->name always
 	contains the path (which may be absolute for remote tablespaces in
 	5.6+). space->name contains the tablespace name in the form
@@ -811,7 +844,7 @@ datafile_rsync_backup(const char *filepath, bool save_to_list, FILE *f)
 		return(true);
 	}
 
-	if (filename_matches(filepath, ext_list)) {
+	if (filename_matches(filepath, ext)) {
 		fprintf(f, "%s\n", filepath);
 		if (save_to_list) {
 			rsync_list.insert(filepath);
@@ -1174,7 +1207,11 @@ backup_files(const char *from, bool prep_mode)
 	       prep_mode ? "prep copy of" : "to backup");
 
 	datadir_node_init(&node);
-	it = datadir_iter_new(from);
+	if (backup_tokudb) {
+	  it = datadir_iter_new(from, false);
+	} else {
+	  it = datadir_iter_new(from);
+	}
 
 	while (datadir_iter_next(it, &node)) {
 
@@ -1977,4 +2014,63 @@ version_check()
 	fputs((const char *)version_check_pl, pipe);
 
 	pclose(pipe);
+}
+
+
+bool
+tokudb_backup_start()
+{
+	return tokudb_lock_checkpoint(mysql_connection);
+}
+
+bool
+tokudb_copy_data_files()
+{
+	/** backup tokudb files in tokudb_data_dir */
+	if (my_setwd(tokudb_datadir,MYF(MY_WME))) {
+		msg("xtrabackup[TOKUDB]: cannot my_setwd to tokudb_datadir %s\n", tokudb_datadir);
+		return false;
+	}
+
+	backup_tokudb = true;
+	backup_tokudb_datafile = true;
+	backup_files(".", false);
+	backup_tokudb_datafile = false;
+	backup_tokudb = false;
+
+	if (my_setwd(mysql_real_data_home,MYF(MY_WME))) {
+		msg("xtrabackup[TOKUDB]: cannot my_setwd to mysql_real_data_home %s\n", mysql_real_data_home);
+		return false;
+	}
+	return true;
+}
+bool
+tokudb_copy_log_files()
+{
+	/** backup tokudb files in mysql datadir */
+	backup_tokudb = true;
+	backup_tokudb_logfile2 = true;
+	backup_files(".", false);
+	backup_tokudb_logfile2 = false;
+
+	/** backup tokudb files in tokudb_log_dir */
+	if (my_setwd(tokudb_logdir,MYF(MY_WME))) {
+		msg("xtrabackup[TOKUDB]: cannot my_setwd to tokudb_datadir %s\n", tokudb_logdir);
+		return false;
+	}
+	backup_tokudb_logfile = true;
+	backup_files(".", false);
+	backup_tokudb_logfile = false;
+
+	if (my_setwd(mysql_real_data_home,MYF(MY_WME))) {
+		msg("xtrabackup[TOKUDB]: cannot my_setwd to mysql_real_data_home %s\n", mysql_real_data_home);
+		return false;
+	}
+	backup_tokudb = false;
+	return true;
+}
+bool
+tokudb_backup_finish()
+{
+	return tokudb_unlock_checkpoint(mysql_connection);
 }

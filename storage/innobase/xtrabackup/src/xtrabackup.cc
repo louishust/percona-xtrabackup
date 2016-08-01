@@ -370,6 +370,7 @@ my_bool opt_force_non_empty_dirs = FALSE;
 my_bool opt_noversioncheck = FALSE;
 my_bool opt_no_backup_locks = FALSE;
 my_bool opt_decompress = FALSE;
+my_bool opt_with_tokudb = FALSE;
 
 static const char *binlog_info_values[] = {"off", "lockless", "on", "auto",
 					   NullS};
@@ -627,7 +628,8 @@ enum options_xtrabackup
   OPT_SAFE_SLAVE_BACKUP_TIMEOUT,
   OPT_BINLOG_INFO,
   OPT_REDO_LOG_VERSION,
-  OPT_KEYRING_FILE_DATA
+  OPT_KEYRING_FILE_DATA,
+  OPT_WITH_TOKUDB,
 };
 
 struct my_option xb_long_options[] =
@@ -1237,6 +1239,11 @@ Disable with --skip-innodb-doublewrite.", (G_PTR*) &innobase_use_doublewrite,
    &opt_encrypt_server_id, &opt_encrypt_server_id, 0,
    GET_UINT, REQUIRED_ARG, 0, 0, UINT_MAX32,
    0, 0, 0},
+
+  {"with-tokudb", OPT_WITH_TOKUDB, "Take backup with tokudb engine",
+   (uchar *) &opt_with_tokudb, (uchar *) &opt_with_tokudb, 0,
+   GET_BOOL, NO_ARG, 0, 0, 0, 0, 0, 0},
+
 
   { 0, 0, 0, 0, 0, 0, GET_NO_ARG, NO_ARG, 0, 0, 0, 0, 0, 0}
 };
@@ -4093,6 +4100,7 @@ xtrabackup_backup_func(void)
 
 	recv_is_making_a_backup = true;
 
+
 #ifdef USE_POSIX_FADVISE
 	msg("xtrabackup: uses posix_fadvise().\n");
 #endif
@@ -4470,8 +4478,24 @@ reread_log_header:
 	}
 	}
 
+	/** copy tokudb data files */
+	if (opt_with_tokudb) {
+		if (!tokudb_backup_start()) {
+			exit(EXIT_FAILURE);
+  }
+		if (!tokudb_copy_data_files()) {
+			exit(EXIT_FAILURE);
+	}
+	}
+
 	if (!backup_start()) {
 		exit(EXIT_FAILURE);
+	}
+
+	if (opt_with_tokudb) {
+		if (!tokudb_copy_log_files()) {
+			exit(EXIT_FAILURE);
+		}
 	}
 
 	/* read the latest checkpoint lsn */
@@ -4544,9 +4568,14 @@ skip_last_cp:
 
 	}
 
+	if (opt_with_tokudb) {
+	  tokudb_backup_finish();
+	}
+
 	if (!backup_finish()) {
 		exit(EXIT_FAILURE);
 	}
+	
 
 	xtrabackup_destroy_datasinks();
 

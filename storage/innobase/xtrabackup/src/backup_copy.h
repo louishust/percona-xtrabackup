@@ -48,4 +48,14 @@ is_path_separator(char);
 bool
 directory_exists(const char *dir, bool create);
 
+/*************** tokudb related functions */
+bool
+tokudb_backup_start();
+bool
+tokudb_copy_data_files();
+bool
+tokudb_copy_log_files();
+bool
+tokudb_backup_finish();
+
 #endif

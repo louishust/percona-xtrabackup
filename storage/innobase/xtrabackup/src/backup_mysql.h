@@ -30,6 +30,9 @@ extern char *mysql_slave_position;
 extern char *mysql_binlog_position;
 extern char *buffer_pool_filename;
 
+extern char* tokudb_datadir;
+extern char* tokudb_logdir;
+
 /** connection to mysql server */
 extern MYSQL *mysql_connection;
 
@@ -88,5 +91,12 @@ write_galera_info(MYSQL *connection);
 bool
 write_slave_info(MYSQL *connection);
 
+
+/************ tokudb related functions */
+
+bool
+tokudb_lock_checkpoint(MYSQL *connection);
+bool
+tokudb_unlock_checkpoint(MYSQL *connection);
 
 #endif
