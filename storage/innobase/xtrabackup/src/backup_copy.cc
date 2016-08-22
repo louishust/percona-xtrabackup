@@ -1226,7 +1226,7 @@ backup_files(const char *from, bool prep_mode)
 				msg("Failed to copy file %s\n", node.filepath);
 				goto out;
 			}
-		} else if (!prep_mode) {
+		} else if (!prep_mode && !backup_tokudb) {
 			/* backup fake file into empty directory */
 			char path[FN_REFLEN];
 			ut_snprintf(path, sizeof(path),
