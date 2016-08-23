@@ -565,14 +565,14 @@ get_mysql_vars(MYSQL *connection)
 		}
 	}
 
-	if (tokudb_datadir_var == NULL) {
+	if (tokudb_datadir_var == NULL || strcmp(tokudb_datadir_var, "") == 0) {
 		strmake(tokudb_real_data_home, mysql_real_data_home, FN_REFLEN - 1);
 	} else {
 		strmake(tokudb_real_data_home, tokudb_datadir_var, FN_REFLEN - 1);
 	}
 	tokudb_datadir= tokudb_real_data_home;
 
-	if (tokudb_logdir_var == NULL) {
+	if (tokudb_logdir_var == NULL || strcmp(tokudb_logdir_var, "") == 0) {
 		strmake(tokudb_real_log_home, mysql_real_data_home, FN_REFLEN - 1);
 	} else {
 		strmake(tokudb_real_log_home, tokudb_logdir_var, FN_REFLEN - 1);
